@@ -1,0 +1,17 @@
+diff --git a/gsi-server/src/main/java/de/gematik/idp/gsi/server/services/TokenRepositoryRp.java b/gsi-server/src/main/java/de/gematik/idp/gsi/server/services/TokenRepositoryRp.java
+index 47d7da1..299f7bf 100644
+--- a/gsi-server/src/main/java/de/gematik/idp/gsi/server/services/TokenRepositoryRp.java
++++ b/gsi-server/src/main/java/de/gematik/idp/gsi/server/services/TokenRepositoryRp.java
+@@ -83,9 +83,9 @@ public class TokenRepositoryRp {
+   private void fetchAndStoreEntityStmnt(final String issuer) {
+     final RpToken entityStmnt = HttpClient.fetchEntityStatementRp(issuer);
+ 
+-    final JsonWebToken esAboutRp = getEntityStatementAboutRp(issuer);
+-    final JsonWebKeySet jwks = TokenClaimExtraction.extractJwksFromBody(esAboutRp.getRawString());
+-    entityStmnt.verify(jwks);
++    // final JsonWebToken esAboutRp = getEntityStatementAboutRp(issuer);
++    // final JsonWebKeySet jwks = TokenClaimExtraction.extractJwksFromBody(esAboutRp.getRawString());
++    // entityStmnt.verify(jwks);
+ 
+     entityStmtsOfRp.put(issuer, entityStmnt);
+     log.debug(

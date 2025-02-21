@@ -1,0 +1,79 @@
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    tags: [ "*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest-16core
+
+    env:
+      REGISTRY: ${{ github.event.pull_request.merged && 'docker-oss.nexus.famedly.de' || 'docker-nightly.nexus.famedly.de' }}
+
+    steps:
+      - name: Authenticate to docker registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ vars.NEXUS_REGISTRY_USER }}
+          password: ${{ secrets.registry_password || secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: |
+          # Disable man cache generation because that takes forever
+          # and it's useless in CI
+          sudo apt-get -qq remove --purge man-db
+          # Remove all superfluous jdk versions so that maven doesn't
+          # get confused
+          sudo apt-get -qq remove --purge temurin-8-jdk temurin-11-jdk temurin-17-jdk
+          sudo apt-get -qq install jq
+
+          # For some reason GitHub CI hard-codes the JAVA_HOME that
+          # ubuntu would set with update-alternatives, so we have to
+          # force it
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+
+      - uses: actions/checkout@v4
+      - name: Build containers
+        shell: bash
+        run: |
+          mvn clean package \
+              -Ddocker.registry.gematik="$REGISTRY" \
+              -Dskip.unittests \
+              -Dskip.inttests
+
+      - name: Patch out federation
+        run: git apply .github/workflows/disable-federation.patch
+      - name: Build patched container
+        run: |
+          mvn clean package \
+              -Ddocker.registry.gematik="$REGISTRY" \
+              -Dskip.unittests \
+              -Dskip.inttests \
+              -Ddocker.image.name.gsiserver="$REGISTRY/idm/gsi-server-unfederated"
+
+      - name: Figure out image tags
+        run: |
+          VERSION="$(docker image ls --format json | jq --raw-output "select(.Repository == \"$REGISTRY/idm/gsi-fedmaster\") | .Tag")"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Rename tags if we are not merging
+        if: ${{ ! github.event.pull_request.merged }}
+        run: |
+          branch="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          branch="${branch//\//_}"
+          docker tag "$REGISTRY/idm/gsi-server:$VERSION" "$REGISTRY/idm/gsi-server:$branch"
+          docker tag "$REGISTRY/idm/gsi-server-unfederated:$VERSION" "$REGISTRY/idm/gsi-server-unfederated:$branch"
+          docker tag "$REGISTRY/idm/gsi-fedmaster:$VERSION" "$REGISTRY/idm/gsi-fedmaster:$branch"
+
+          echo "VERSION=$branch" >> "$GITHUB_ENV"
+
+      - name: Push built containers
+        run: |
+          docker push "$REGISTRY/idm/gsi-server:$VERSION"
+          docker push "$REGISTRY/idm/gsi-server-unfederated:$VERSION"
+          docker push "$REGISTRY/idm/gsi-fedmaster:$VERSION"
